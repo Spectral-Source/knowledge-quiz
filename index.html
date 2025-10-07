@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מבחן ידע לקצונה - היסטוריה</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;700;900&display=swap');
+        body {
+            font-family: 'Heebo', sans-serif;
+            background-color: #0d1117;
+        }
+        .btn-primary:hover {
+            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.5), 0 4px 6px -2px rgba(37, 99, 235, 0.25);
+            transform: translateY(-2px);
+        }
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div id="app-container" class="w-full">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-white mb-2 tracking-wide border-b-2 border-amber-500/50 pb-2 inline-block">
+                מבחן ידע לקצונה
+            </h1>
+            <p class="text-gray-300 text-lg">
+                תרגול תאריכים ומאורעות יסוד בהיסטוריה של צה"ל
+            </p>
+            <p id="user-id-display" class="text-xs text-gray-500 mt-2">
+                טוען משתמש...
+            </p>
+        </header>
+
+        <!-- Quiz Card -->
+        <div id="quiz-card" class="bg-white shadow-2xl rounded-2xl p-6 md:p-10 w-full max-w-xl mx-auto border-t-4 border-amber-500/70 transition-all duration-300 transform scale-100 hidden">
+            <div class="flex justify-between items-start mb-6 border-b border-gray-200 pb-4">
+                <div>
+                    <span id="category-display" class="text-sm font-semibold text-gray-500 uppercase tracking-widest block mb-1"></span>
+                    <h2 id="question-index" class="text-3xl font-extrabold text-gray-800"></h2>
+                </div>
+                <div class="text-center">
+                    <span id="score-display" class="text-4xl font-extrabold text-amber-600 block leading-none">0</span>
+                    <span class="text-xs text-gray-500">ציון</span>
+                </div>
+            </div>
+
+            <p id="question-text" class="text-xl md:text-2xl font-medium text-gray-700 mb-8 leading-relaxed"></p>
+
+            <div class="mb-4">
+                <input
+                    id="answer-input"
+                    type="text"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="הכנס שנת יעד (4 ספרות)"
+                    class="w-full px-5 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-amber-500/50 text-xl text-center font-mono transition-shadow duration-150 shadow-inner"
+                    dir="ltr"
+                    maxlength="4"
+                />
+            </div>
+            
+            <p id="hint-text" class="text-xs text-gray-400 mt-2 text-center"></p>
+
+            <div id="feedback-message" class="mt-5 p-4 rounded-xl text-center font-bold text-white transition-opacity duration-700 shadow-md opacity-0" style="min-height: 56px;"></div>
+
+            <button
+                id="check-button"
+                class="w-full mt-8 py-4 px-4 rounded-xl text-white font-bold text-lg shadow-xl shadow-blue-800/40 transition-all duration-300 transform btn-primary bg-blue-400 cursor-not-allowed"
+                disabled
+            >
+                אישור ובדיקה
+            </button>
+        </div>
+
+        <!-- Completion Card -->
+        <div id="completion-card" class="hidden bg-white shadow-2xl rounded-2xl p-8 md:p-12 w-full max-w-xl mx-auto text-center border-t-4 border-amber-500/70">
+            <h2 class="text-4xl font-extrabold text-blue-800 mb-4">סיום הקוויז!</h2>
+            <p class="text-xl text-gray-700 mb-6">הכנה מצוינת. הציון הסופי שלך הוא:</p>
+            <div class="my-8">
+                <span id="final-score" class="font-extrabold text-amber-600 text-6xl block leading-none">0</span>
+                <span id="total-questions" class="text-lg text-gray-500 block">מתוך 0 שאלות</span>
+            </div>
+            <button
+                id="restart-button"
+                class="w-full py-4 px-4 rounded-xl text-white font-bold text-lg bg-blue-800 hover:bg-blue-900 shadow-xl shadow-blue-800/40 transition-all duration-300 transform active:scale-[0.98]"
+            >
+                התחל תרגול מחדש
+            </button>
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global state
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId = null;
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let questions = [];
+
+        // DOM references
+        const quizCard = document.getElementById('quiz-card');
+        const completionCard = document.getElementById('completion-card');
+        const questionIndexEl = document.getElementById('question-index');
+        const categoryDisplayEl = document.getElementById('category-display');
+        const scoreDisplayEl = document.getElementById('score-display');
+        const questionTextEl = document.getElementById('question-text');
+        const hintTextEl = document.getElementById('hint-text');
+        const answerInput = document.getElementById('answer-input');
+        const checkButton = document.getElementById('check-button');
+        const feedbackMessage = document.getElementById('feedback-message');
+        const finalScoreEl = document.getElementById('final-score');
+        const totalQuestionsEl = document.getElementById('total-questions');
+        const restartButton = document.getElementById('restart-button');
+        const userIdDisplay = document.getElementById('user-id-display');
+
+        // --- Firebase init ---
+        async function initFirebase() {
+            if (Object.keys(firebaseConfig).length === 0) {
+                console.warn("Firebase config is empty. Running in demo mode.");
+                userIdDisplay.textContent = 'מצב דמו: שמירת נתונים מושבתת.';
+                return;
+            }
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userIdDisplay.textContent = `מזהה משתמש: ${userId.substring(0, 8)}... (שמירה פעילה)`;
+                    } else {
+                        userId = crypto.randomUUID();
+                        userIdDisplay.textContent = `מזהה משתמש זמני: ${userId.substring(0, 8)}...`;
+                    }
+                });
+            } catch (err) {
+                console.error("Firebase init error:", err);
+                userIdDisplay.textContent = 'שגיאת התחברות ל-Firebase.';
+            }
+        }
+
+        async function saveScoreToFirestore(finalScore) {
+            if (!db || !userId) return;
+            try {
+                const userDocRef = doc(db, `artifacts/${appId}/users/${userId}/quiz_progress`, 'history_quiz');
+                await setDoc(userDocRef, {
+                    score: finalScore,
+                    lastUpdate: new Date().toISOString(),
+                    totalQuestions: questions.length,
+                }, { merge: true });
+                console.log("Score saved to Firestore.");
+            } catch (err) {
+                console.error("Error saving score:", err);
+            }
+        }
+
+        // --- Load Questions Externally ---
+        async function loadQuestions() {
+            try {
+                const res = await fetch('questions_data.json');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                questions = await res.json();
+                console.log(`Loaded ${questions.length} questions`);
+                loadQuestion(); // start quiz
+            } catch (err) {
+                console.error("Error loading questions JSON:", err);
+                alert("שגיאה בטעינת שאלות הקוויז.");
+            }
+        }
+
+        // --- Quiz Logic ---
+        function loadQuestion() {
+            if (currentQuestionIndex >= questions.length) return showCompletionCard();
+
+            const q = questions[currentQuestionIndex];
+            questionIndexEl.textContent = `שאלה ${currentQuestionIndex + 1} מתוך ${questions.length}`;
+            categoryDisplayEl.textContent = q.category;
+            scoreDisplayEl.textContent = score;
+            questionTextEl.textContent = q.question;
+            hintTextEl.textContent = `רמז: ${q.hint}`;
+
+            answerInput.value = '';
+            answerInput.disabled = false;
+            checkButton.disabled = true;
+            feedbackMessage.classList.add('opacity-0');
+            quizCard.classList.remove('hidden');
+            completionCard.classList.add('hidden');
+        }
+
+        function handleAnswerInput() {
+            answerInput.value = answerInput.value.replace(/[^0-9]/g, '');
+            const isValid = answerInput.value.length === 4;
+            checkButton.disabled = !isValid;
+            checkButton.classList.toggle('bg-blue-800', isValid);
+            checkButton.classList.toggle('hover:bg-blue-900', isValid);
+            checkButton.classList.toggle('bg-blue-400', !isValid);
+            checkButton.classList.toggle('cursor-not-allowed', !isValid);
+        }
+
+        function checkAnswer() {
+            if (checkButton.disabled) return;
+            const userAnswer = parseInt(answerInput.value, 10);
+            const correctAnswer = questions[currentQuestionIndex].answer;
+            const correct = userAnswer === correctAnswer;
+
+            answerInput.disabled = true;
+            checkButton.disabled = true;
+            feedbackMessage.classList.remove('opacity-0', 'bg-green-600', 'bg-red-600');
+            if (correct) {
+                score++;
+                feedbackMessage.textContent = "✅ תשובה נכונה!";
+                feedbackMessage.classList.add('bg-green-600');
+            } else {
+                feedbackMessage.textContent = `❌ טעות. התשובה הנכונה היא: ${correctAnswer}.`;
+                feedbackMessage.classList.add('bg-red-600');
+            }
+            feedbackMessage.classList.remove('opacity-0');
+            scoreDisplayEl.textContent = score;
+
+            setTimeout(() => {
+                currentQuestionIndex++;
+                if (currentQuestionIndex < questions.length) loadQuestion();
+                else {
+                    showCompletionCard();
+                    saveScoreToFirestore(score);
+                }
+            }, 2000);
+        }
+
+        function showCompletionCard() {
+            quizCard.classList.add('hidden');
+            completionCard.classList.remove('hidden');
+            finalScoreEl.textContent = score;
+            totalQuestionsEl.textContent = `מתוך ${questions.length} שאלות`;
+        }
+
+        function restartQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            loadQuestion();
+        }
+
+        // --- Initialize ---
+        initFirebase();
+        answerInput.addEventListener('input', handleAnswerInput);
+        checkButton.addEventListener('click', checkAnswer);
+        restartButton.addEventListener('click', restartQuiz);
+        window.onload = loadQuestions;
+    </script>
+</body>
+</html>
